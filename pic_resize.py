@@ -1,41 +1,137 @@
 from PIL import Image
+import os
 
-image_path = "123.jpg"
-max_line = 4000
-image = Image.open(image_path)
-long_side = None
-short_side = None
-flag = None
-if image.width >= max_line and image.height >= max_line:
-    pass
-# 这个图片太宽了
-elif image.width >= max_line:
-    long_side = image.width
-    short_side = image.height
-    flag = 1
-# 这个图片太高了
-elif image.height >= max_line:
-    long_side = image.height
-    short_side = image.width
-    flag = 2
-if long_side:
-    clip = long_side // max_line
-    flow = long_side % max_line
-    new_pic_long = max_line
-    new_pic_short = (clip + 1) * short_side
-    if flag == 2:
-        target = Image.new('RGB', (new_pic_short, new_pic_long),(255, 255, 255))
-        for i in range(1, clip + 1):
-            image_temp = image.crop((0, (i - 1) * max_line, short_side, i * max_line))
-            target.paste(image_temp, (0, (i - 1) * max_line, short_side * i, max_line))
-        image_temp = image.crop((0, long_side - flow, short_side, long_side))
-        target.paste(image_temp, (short_side, 0, new_pic_short, flow))
-    else:
-        target = Image.new('RGB', (new_pic_long, new_pic_short))
-        for i in range(1, clip + 1):
-            image_temp = image.crop(((i - 1) * max_line, 0, i * max_line, short_side))
-            target.paste(image_temp, ((i - 1) * max_line, 0, max_line, short_side * i))
-        image_temp = image.crop((long_side - flow, 0, long_side, short_side))
-        target.paste(image_temp, (0, short_side, flow, new_pic_short))
+class PicResize(object):
 
-    target.save('result.jpg', quality=100)
+    def __init__(self, max_line):
+        self.max_line = max_line
+        self.image = None
+
+    def resize(self, _new_name, image_url):
+
+        image = Image.open(image_url)
+        new_name = _new_name + '.jpg'
+        self.image = image
+
+        # 这个图片比较高
+        if self.image.width < self.image.height:
+            long_side = self.image.height
+            short_side = self.image.width
+
+            # 方体化运算
+            parts = round((long_side / short_side) ** 0.5)
+            # print(parts)
+
+            # 需要开启叠叠乐模式
+            if parts > 1:
+                # 需要放parts排，宽度为「分段*宽边」，而高度为「最后裁出来那段贴图的高度」
+                new_width = parts * self.image.width
+                new_height = (self.image.height // parts) + (self.image.height % parts)
+                # 新建粘贴底板
+                target = Image.new('RGB', (new_width, new_height), (255, 255, 255))
+                # 循环裁剪的高度和最后一段的高度有所不同（由于少了余数所以更短）
+                cycle_height = self.image.height // parts
+                for i in range(1, parts):
+                    image_temp = self.image.crop((0, (i - 1) * cycle_height, self.image.width, i * cycle_height))
+                    target.paste(image_temp, ((i - 1) * self.image.width, 0, i * self.image.width, cycle_height))
+                image_temp = self.image.crop((0, self.image.height - new_height, self.image.width, self.image.height))
+                target.paste(image_temp, (new_width - self.image.width, 0, new_width, new_height))
+
+                if new_width > new_height:
+                    new_long_side = new_width
+                    if new_long_side > self.max_line:
+                        plus = self.max_line / new_long_side
+                        new_width = self.max_line
+                        new_height = round(plus * new_height)
+                        target = target.resize((new_width, new_height), Image.ANTIALIAS)
+                else:
+                    new_long_side = new_height
+                    if new_long_side > self.max_line:
+                        plus = self.max_line / new_long_side
+                        new_width = round(plus * new_width)
+                        new_height = self.max_line
+                        target = target.resize((new_width, new_height), Image.ANTIALIAS)
+
+            # 不用叠了，但高度超标
+            elif self.image.height > self.max_line:
+                plus = self.max_line / self.image.height
+                new_width = round(plus * self.image.width)
+                new_height = self.max_line
+                target = image.resize((new_width, new_height), Image.ANTIALIAS)
+
+            # 一切符合标准
+            else:
+                target = image
+
+        # 这个图片比较宽
+        else:
+            long_side = self.image.width
+            short_side = self.image.height
+
+            # 方体化运算
+            parts = round((long_side / short_side) ** 0.5)
+            # print(parts)
+
+            # 需要开启叠叠乐模式
+            if parts > 1:
+                # 需要放parts层，高度为「分段*竖边」，而宽度为「最后裁出来那段贴图的宽度」
+                new_height = parts * self.image.height
+                new_width = (self.image.width // parts) + (self.image.width % parts)
+                # 新建粘贴底板
+                target = Image.new('RGB', (new_width, new_height), (255, 255, 255))
+                # 循环裁剪的宽度和最后一段的宽度有所不同（由于少了余数所以更短）
+                cycle_width = self.image.width // parts
+                for i in range(1, parts):
+                    image_temp = self.image.crop(((i - 1) * cycle_width, 0, i * cycle_width, self.image.height))
+                    target.paste(image_temp, (0, (i - 1) * self.image.height, cycle_width, i * self.image.height))
+                image_temp = self.image.crop((self.image.width - new_width, 0, self.image.width, self.image.height))
+                target.paste(image_temp, (0, new_height - self.image.height, new_width, new_height))
+
+                if new_width > new_height:
+                    new_long_side = new_width
+                    if new_long_side > self.max_line:
+                        plus = self.max_line / new_long_side
+                        new_width = self.max_line
+                        new_height = round(plus * new_height)
+                        target = target.resize((new_width, new_height), Image.ANTIALIAS)
+                else:
+                    new_long_side = new_height
+                    if new_long_side > self.max_line:
+                        plus = self.max_line / new_long_side
+                        new_width = round(plus * new_width)
+                        new_height = self.max_line
+                        target = target.resize((new_width, new_height), Image.ANTIALIAS)
+
+            # 不用叠了，但宽度超标
+            elif self.image.height > self.max_line:
+                plus = self.max_line / self.image.height
+                new_width = round(plus * self.image.width)
+                new_height = self.max_line
+                target = image.resize((new_width, new_height), Image.ANTIALIAS)
+
+            # 一切符合标准
+            else:
+                target = image
+        target = target.convert('RGB')
+        target.save(new_name, quality=90)
+
+        # 若超出4MB，压缩图像；其中4*1024*1024 = 4194304
+        _quality = 90
+        while os.path.getsize(new_name)>4194304:
+            _quality = _quality - 10
+            # emmmm……
+            if _quality == 0:
+                return False
+            target.save(new_name, quality = _quality)
+
+        return os.path.getsize(new_name)
+
+if __name__ == '__main__':
+
+    # _file = "test01.png"
+    _file = "test02.jpg"
+    # _file = "test03.jpg"
+
+    test_pic = PicResize(4000)
+    rsg = test_pic.resize("test02", _file)
+    print(rsg)
